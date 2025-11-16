@@ -13,9 +13,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+import dj_database_url
 
 # --- Load environment variables from .env file ---
-load_dotenv()
+# This line loads your .env file
+load_dotenv(BASE_DIR / '.env')
 # -------------------------------------------------
 
 
@@ -29,12 +31,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 # --- Updated to read from .env file ---
 SECRET_KEY = os.getenv('SECRET_KEY')
-# ----------------------------------------
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# --- Dynamic DEBUG setting ---
+# DEBUG is True locally (when DATABASE_URL is not set),
+# and False when deployed to production (Railway will set DATABASE_URL).
+DEBUG = os.getenv('DATABASE_URL') is None
 
-ALLOWED_HOSTS = []
+# --- Dynamic Host Settings ---
+# Load allowed hosts from an env variable, split by comma
+# Locally, this will default to 127.0.0.1
+ALLOWED_HOSTS_STRING = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost')
+ALLOWED_HOSTS = ALLOWED_HOSTS_STRING.split(',')
+
+# When deploying, Railway will provide a public domain.
+# We must add this to CSRF_TRUSTED_ORIGINS.
+RAILWAY_PUBLIC_DOMAIN = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+if RAILWAY_PUBLIC_DOMAIN:
+    CSRF_TRUSTED_ORIGINS = [f"https://{RAILWAY_PUBLIC_DOMAIN}"]
+# -----------------------------
 
 
 # Application definition
@@ -83,49 +97,63 @@ WSGI_APPLICATION = 'ekitilaw_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'TIMEOUT': 20,  # Fixes the "database is locked" error
+# --- 3. DYNAMIC DATABASE CONFIGURATION ---
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if DATABASE_URL:
+    # We are in production on Railway, use PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.config(
+            conn_max_age=600,
+            ssl_require=False 
+            # Railway uses a private network, so SSL is not needed
+        )
     }
-}
+else:
+    # We are running locally, use SQLite
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+            'TIMEOUT': 20, # Fixes the "database is locked" error
+        }
+    }
+# -----------------------------------------
 
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    { 'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator', },
+    { 'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', },
+    { 'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator', },
+    { 'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator', },
 ]
 
 
 # Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
+# https://docs.djangoproject.com/en/5.2/topics/i1n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# This tells Django where to collect static files for production
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Media files (User Uploads)
+MEDIA_URL = '/media/'
+# NOTE: Railway's free tier does not support persistent file storage.
+# Your PDF uploads will be DELETED every time you deploy.
+# The solution is to add a "Volume" on Railway.
+MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -133,15 +161,17 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# --- DYNAMIC MEILISEARCH CONFIG ---
+# Railway will provide these as environment variables
+# Locally, we fall back to our .env values (or defaults)
+MEILI_HOST = os.getenv('MEILI_HOST', '127.0.0.1')
+MEILI_PORT = os.getenv('MEILI_PORT', '7700')
+MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY') # This will be read from .env locally
 
-
-# --- MEILISEARCH CONFIG (for django-meili) ---
-# --- Updated to read from .env file ---
 MEILISEARCH = {
-    'HOST': '127.0.0.1', 
-    'PORT': 7700,
-    'MASTER_KEY': os.getenv('MEILI_MASTER_KEY'), # Reads the key from .env
+    'HOST': MEILI_HOST, # Just the hostname or IP
+    'PORT': int(MEILI_PORT), # Just the port
+    'MASTER_KEY': MEILI_MASTER_KEY,
     'SYNC': False, 
 }
+# -----------------------------------
