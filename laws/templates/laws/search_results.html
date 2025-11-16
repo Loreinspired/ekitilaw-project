@@ -1,0 +1,83 @@
+{% extends "laws/base.html" %}
+
+{% block title %}Search - Ekiti State Laws{% endblock %}
+
+{% block content %}
+    <style>
+        /* This new style makes the section link bold and keeps the color */
+        .result-section-link {
+            font-weight: bold;
+            color: #212529; /* Default Bootstrap text color */
+            text-decoration: none;
+        }
+        .result-section-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+
+    <h1 class="mb-4">Search Ekiti State Laws</h1>
+
+    <form method="GET" action="">
+        <div class="input-group mb-4">
+            <input type="text" name="q" class="form-control form-control-lg" placeholder="Search for any term..." value="{{ query }}">
+            <button class="btn btn-primary" type="submit">Search</button>
+        </div>
+    </form>
+
+    <hr>
+
+    {% if query %}
+        <h2>Results for "{{ query }}"</h2>
+        
+        {% for result in results %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    
+                    {% if result.result_type == 'Section' %}
+                        <!-- 1. The Title (No longer a link) -->
+                        <h5 class="card-title text-primary">{{ result.law_title|safe }}</h5>
+
+                        <!-- 2. The Snippet (The Section is now the link) -->
+                        <div class="result-snippet mt-2">
+                            <p>
+                                <a href="{% url 'law_detail' result.law_slug %}#section-{{ result.id }}" class="result-section-link">
+                                    <strong>
+                                        {% if result.highlight.part_heading %}{{ result.highlight.part_heading|safe }}<br>{% endif %}
+                                        {% if result.highlight.chapter_heading %}{{ result.highlight.chapter_heading|safe }}<br>{% endif %}
+                                        S.{{ result.highlight.section_number|safe }} - {{ result.highlight.section_title|safe }}
+                                    </strong>
+                                </a>
+                            </p>
+                            <p>{{ result.highlight.content|safe }}</p>
+                        </div>
+                        <p class="card-text"><small class="text-muted">Section {{ result.section_number|safe }}</small></p>
+
+                    {% elif result.result_type == 'Schedule' %}
+                        <h5 class="card-title text-primary">{{ result.law_title|safe }}</h5>
+                        <div class="result-snippet mt-2">
+                            <a href="{% url 'law_detail' result.law_slug %}#schedule-{{ result.id }}" class="result-section-link">
+                                <p><strong>{{ result.highlight.schedule_number|safe }} - {{ result.highlight.title|safe }}</strong></p>
+                            </a>
+                            <p>{{ result.highlight.content|safe }}</p>
+                        </div>
+                        <p class="card-text"><small class="text-muted">{{ result.schedule_number|safe }}</small></p>
+
+                    {% elif result.result_type == 'Appendix' %}
+                        <h5 class="card-title text-primary">{{ result.law_title|safe }}</h5>
+                        <div class="result-snippet mt-2">
+                             <a href="{% url 'law_detail' result.law_slug %}#appendix-{{ result.id }}" class="result-section-link">
+                                <p><strong>{{ result.highlight.appendix_number|safe }} - {{ result.highlight.title|safe }}</strong></p>
+                            </a>
+                            <p>{{ result.highlight.content|safe }}</p>
+                        </div>
+                        <p class="card-text"><small class="text-muted">{{ result.appendix_number|safe }}</small></p>
+                    {% endif %}
+                </div>
+            </div>
+        {% empty %}
+            <p>No results found.</p>
+        {% endfor %}
+
+    {% endif %}
+
+{% endblock %}

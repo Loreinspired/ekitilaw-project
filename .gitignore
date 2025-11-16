@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment
+myenv/
+
+# Secrets
+.env
+
+# Database
+db.sqlite3
+
+# Uploaded Files
+media/
+
+# Meilisearch
+data.ms/
