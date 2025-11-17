@@ -47,6 +47,8 @@ class Law(models.Model):
     def __str__(self):
         return self.title
 
+ai_prepared_text = models.TextField(blank=True, null=True, help_text="Cleaned, tagged text from the AI assistant.")
+
 #
 # --- SECTION MODEL (Corrected) ---
 #

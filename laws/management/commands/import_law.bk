@@ -1,0 +1,145 @@
+# C:\Users\lorea\ekitilaw\laws\management\commands\import_law.py
+
+import os
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from laws.models import Law, Section, Schedule, Appendix
+
+class Command(BaseCommand):
+    help = 'Imports a law from a formatted text file.'
+
+    def add_arguments(self, parser):
+        parser.add_argument('law_slug', type=str, help='The slug of the Law to attach this content to.')
+        parser.add_argument('file_path', type=str, help='The path to the formatted .txt file.')
+
+    def handle(self, *args, **options):
+        law_slug = options['law_slug']
+        file_path = options['file_path']
+
+        if not os.path.exists(file_path):
+            raise CommandError(f"File not found at path: {file_path}")
+
+        try:
+            law = Law.objects.get(slug=law_slug)
+            self.stdout.write(self.style.SUCCESS(f"Found Law: {law.title}"))
+        except Law.DoesNotExist:
+            raise CommandError(f"Error: No Law found with slug '{law_slug}'. Please create the Law in the admin first.")
+
+        # --- SAFETY SWITCH ---
+        self.stdout.write(self.style.WARNING(f"This will DELETE all existing sections, schedules, and appendices for '{law.title}' and replace them with content from the file."))
+        confirmation = input("Are you sure you want to proceed? (yes/no): ")
+        if confirmation.lower() != 'yes':
+            self.stdout.write(self.style.ERROR("Import cancelled."))
+            return
+
+        # Use a database transaction so if anything fails, it all rolls back.
+        try:
+            with transaction.atomic():
+                # Clear existing content
+                law.sections.all().delete()
+                law.schedules.all().delete()
+                law.appendices.all().delete()
+                self.stdout.write(self.style.SUCCESS("Cleared existing content."))
+
+                # Parse the file
+                self.parse_and_import(file_path, law)
+            
+            self.stdout.write(self.style.SUCCESS(f"\nSuccessfully imported all content for {law.title}."))
+
+        except Exception as e:
+            raise CommandError(f"An error occurred during import. Transaction rolled back. Error: {e}")
+
+    def parse_and_import(self, file_path, law):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        current_part = ""
+        current_chapter = ""
+        current_item = None # This will hold a dict of the item being built
+        content_buffer = []
+
+        for line in lines:
+            line_stripped = line.strip()
+
+            # Check for tags
+            if line_stripped.startswith('@PART '):
+                self._save_previous_item(current_item, law) # Save the item we were just building
+                current_item = None
+                current_part = line_stripped.replace('@PART ', '', 1)
+                self.stdout.write(f"  Processing Part: {current_part}")
+
+            elif line_stripped.startswith('@CHAPTER '):
+                self._save_previous_item(current_item, law)
+                current_item = None
+                current_chapter = line_stripped.replace('@CHAPTER ', '', 1)
+
+            elif line_stripped.startswith('@SECTION '):
+                self._save_previous_item(current_item, law)
+                current_item = {'type': 'section', 'part': current_part, 'chapter': current_chapter}
+                current_item['number'] = line_stripped.replace('@SECTION ', '', 1)
+
+            elif line_stripped.startswith('@TITLE '):
+                if current_item:
+                    current_item['title'] = line_stripped.replace('@TITLE ', '', 1)
+                else:
+                    self.stdout.write(self.style.WARNING(f"Found @TITLE without a @SECTION or @SCHEDULE: {line_stripped}"))
+
+            elif line_stripped.startswith('@SCHEDULE '):
+                self._save_previous_item(current_item, law)
+                current_item = {'type': 'schedule'}
+                current_item['number'] = line_stripped.replace('@SCHEDULE ', '', 1)
+            
+            elif line_stripped.startswith('@APPENDIX '):
+                self._save_previous_item(current_item, law)
+                current_item = {'type': 'appendix'}
+                current_item['number'] = line_stripped.replace('@APPENDIX ', '', 1)
+
+            elif current_item is not None:
+                # If we are inside an item, add this line to its content
+                content_buffer.append(line)
+            
+            # Save the content to the item when we hit a tag
+            if line_stripped.startswith('@') and content_buffer:
+                if current_item:
+                    current_item['content'] = "".join(content_buffer).strip()
+                    content_buffer = []
+        
+        # Save the very last item in the file
+        if current_item:
+            current_item['content'] = "".join(content_buffer).strip()
+            self._save_previous_item(current_item, law)
+
+    def _save_previous_item(self, item, law):
+        if not item:
+            return
+
+        item_type = item.get('type')
+
+        try:
+            if item_type == 'section':
+                Section.objects.create(
+                    law=law,
+                    part_heading=item.get('part', ''),
+                    chapter_heading=item.get('chapter', ''),
+                    section_number=item.get('number', ''),
+                    section_title=item.get('title', ''),
+                    content=item.get('content', '')
+                )
+            
+            elif item_type == 'schedule':
+                Schedule.objects.create(
+                    law=law,
+                    schedule_number=item.get('number', ''),
+                    title=item.get('title', ''),
+                    content=item.get('content', '')
+                )
+            
+            elif item_type == 'appendix':
+                Appendix.objects.create(
+                    law=law,
+                    appendix_number=item.get('number', ''),
+                    title=item.get('title', ''),
+                    content=item.get('content', '')
+                )
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"Failed to save item {item.get('number')}: {e}"))
