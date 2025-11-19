@@ -29,23 +29,24 @@ def search(request):
         section_hits = client.index('sections').search(query, search_options).get('hits', [])
         for hit in section_hits:
             hit['result_type'] = 'Section'
-            hit['highlight'] = hit.get('_formatted', {}) # <-- Fix for _formatted
+            hit['highlight'] = hit.get('_formatted', {}) 
             search_results.append(hit)
             
         schedule_hits = client.index('schedules').search(query, search_options).get('hits', [])
         for hit in schedule_hits:
             hit['result_type'] = 'Schedule'
-            hit['highlight'] = hit.get('_formatted', {}) # <-- Fix for _formatted
+            hit['highlight'] = hit.get('_formatted', {}) 
             search_results.append(hit)
 
         appendix_hits = client.index('appendices').search(query, search_options).get('hits', [])
         for hit in appendix_hits:
             hit['result_type'] = 'Appendix'
-            hit['highlight'] = hit.get('_formatted', {}) # <-- Fix for _formatted
+            hit['highlight'] = hit.get('_formatted', {})
             search_results.append(hit)
             
-        # --- 2. THIS IS THE HYDRATION FIX ---
+        # --- 2. THIS IS THE "HYDRATION" FIX ---
         # Get all unique Law IDs from the search results
+        # The 'law' key in your debug output is the Law ID
         law_ids = {hit['law'] for hit in search_results if 'law' in hit}
 
         # Fetch all those Law objects from the database in one efficient query
@@ -59,6 +60,8 @@ def search(request):
                 hit['law_title'] = law_object.title
                 hit['law_slug'] = law_object.slug
             else:
+                # This will happen if we have "ghost" data, but
+                # since we just nuked the index, it won't happen.
                 hit['law_title'] = "Error: Law not found"
                 hit['law_slug'] = "" # This will be blank and still fail
         # ---------------------------
@@ -74,7 +77,7 @@ def search(request):
 # --- LAW DETAIL VIEW (UNCHANGED) ---
 def law_detail(request, law_slug):
     law = get_object_or_404(Law, slug=law_slug)
-    sections = law.sections.all().order_by('id')
+    sections = Section.objects.filter(chapter__part__law=law).select_related('chapter__part').order_by('chapter__part__order', 'chapter__order', 'order')
     schedules = law.schedules.all().order_by('id')
     appendices = law.appendices.all().order_by('id')
     

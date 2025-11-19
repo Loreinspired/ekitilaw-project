@@ -1,5 +1,3 @@
-# ekitilaw_project/settings.py
-
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -16,6 +14,7 @@ load_dotenv(BASE_DIR / '.env')
 # Quick-start development settings - unsuitable for production
 SECRET_KEY = os.getenv('SECRET_KEY')
 
+# DEBUG is True only if DATABASE_URL is not set (i.e., local SQLite)
 DEBUG = os.getenv('DATABASE_URL') is None
 
 ALLOWED_HOSTS_STRING = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost')
@@ -53,7 +52,10 @@ ROOT_URLCONF = 'ekitilaw_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # --- FIX: ADD GLOBAL TEMPLATE DIRECTORY ---
+        # This tells Django to look for 'base.html' in the project's root 'templates' folder.
+        'DIRS': [BASE_DIR / 'templates'],
+        # ------------------------------------------
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -113,7 +115,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# --- MEILISEARCH CONFIG ---
+# --- MEILISEARCH CONFIG (OPTIMIZED) ---
 MEILI_HOST = os.getenv('MEILI_HOST', '127.0.0.1')
 MEILI_PORT = os.getenv('MEILI_PORT', '7700')
 MEILI_MASTER_KEY = os.getenv('MEILI_MASTER_KEY') 
@@ -122,9 +124,14 @@ MEILISEARCH = {
     'HOST': MEILI_HOST, 
     'PORT': int(MEILI_PORT), 
     'MASTER_KEY': MEILI_MASTER_KEY,
-    'SYNC': False, 
+    'SYNC': False, # Critical: Disabled to prevent timeouts during bulk imports
 }
 
-# --- NEW: GEMINI API KEY ---
+# --- NEW: GEMINI API KEY (For potential future use) ---
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 # -----------------------------
+
+# --- NEW: INCREASE FORM FIELD LIMIT (As per your original code) ---
+# Default is 1000. Our Law admin page has more.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 5000 
+# -------------------------------------

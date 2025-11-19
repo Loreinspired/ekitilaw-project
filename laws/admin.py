@@ -3,14 +3,14 @@
 from django.contrib import admin, messages
 from django.db import transaction
 from django.conf import settings
-from .models import Law, Section, Schedule, Appendix
+from .models import Law, Part, Chapter, Section, Schedule, Appendix
 import google.generativeai as genai
 
 # Configure the Gemini API
 if settings.GEMINI_API_KEY:
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
-# --- This is the AI's "Brain" ---
+# --- This is the AI's "Brain" (Unchanged) ---
 AI_SYSTEM_PROMPT = """You are a legal formatting assistant. Your ONLY job is to take raw, messy text from a PDF of a law and convert it into a clean, tagged text file.
 
 You must follow these rules strictly:
@@ -30,217 +30,40 @@ You must follow these rules strictly:
 Your output must be ONLY the cleaned, tagged text. Do not add any conversational text like "Here is the cleaned text:"."""
 
 # --- Helper functions for the importer ---
-def _save_item(item, law):
-    """Saves a single item (Section, Schedule, etc.) to the database."""
-    if not item:
-        return
-    
-    item_type = item.get('type')
-    try:
-        if item_type == 'section':
-            Section.objects.create(
-                law=law,
-                part_heading=item.get('part', ''),
-                chapter_heading=item.get('chapter', ''),
-                section_number=item.get('number', ''),
-                section_title=item.get('title', ''),
-                content=item.get('content', '')
-            )
-        elif item_type == 'schedule':
-            Schedule.objects.create(
-                law=law,
-                schedule_number=item.get('number', ''),
-                title=item.get('title', ''),
-                content=item.get('content', '')
-            )
-        elif item_type == 'appendix':
-            Appendix.objects.create(
-                law=law,
-                appendix_number=item.get('number', ''),
-                title=item.get('title', ''),
-                content=item.get('content', '')
-            )
-    except Exception as e:
-        # This will show an error if one item fails
-        raise Exception(f"Failed to save item {item.get('number')}: {e}")
 
 def _run_import_logic(law_object):
-    """Parses the text and imports all content."""
+    """Parses the text and creates objects."""
     text_to_import = law_object.ai_prepared_text
     if not text_to_import:
         raise Exception("The 'AI-Prepared Text' field is empty. Cannot import.")
 
     lines = text_to_import.splitlines()
     
-    current_part = ""
-    current_chapter = ""
-    current_item = None # Holds the dict of the item being built
-    content_buffer = []
-
-    for line in lines:
-        line_stripped = line.strip()
-
-        # Check for tags
-        tag_found = False
-        if line_stripped.startswith('@PART '):
-            tag_found = True
-            _save_item(current_item, law_object)
-            current_item = None
-            current_part = line_stripped.replace('@PART ', '', 1)
-        elif line_stripped.startswith('@CHAPTER '):
-            tag_found = True
-            _save_item(current_item, law_object)
-            current_item = None
-            current_chapter = line_stripped.replace('@CHAPTER ', '', 1)
-        elif line_stripped.startswith('@SECTION '):
-            tag_found = True
-            _save_item(current_item, law_object)
-            current_item = {'type': 'section', 'part': current_part, 'chapter': current_chapter}
-            current_item['number'] = line_stripped.replace('@SECTION ', '', 1)
-        elif line_stripped.startswith('@TITLE '):
-            tag_found = True
-            if current_item:
-                current_item['title'] = line_stripped.replace('@TITLE ', '', 1)
-        elif line_stripped.startswith('@SCHEDULE '):
-            tag_found = True
-            _save_item(current_item, law_object)
-            current_item = {'type': 'schedule'}
-            current_item['number'] = line_stripped.replace('@SCHEDULE ', '', 1)
-        elif line_stripped.startswith('@APPENDIX '):
-            tag_found = True
-            _save_item(current_item, law_object)
-            current_item = {'type': 'appendix'}
-            current_item['number'] = line_stripped.replace('@APPENDIX ', '', 1)
-
-        # Handle content
-        if tag_found:
-            # If we found a tag, save the previous content buffer
-            if current_item and content_buffer:
-                # Find the item this content belonged to (it's not `current_item`)
-                # This logic is tricky, let's simplify
-                pass # The _save_item call handles the previous item
-            
-            if current_item: # Check if we are building a new item
-                current_item['content'] = "" # Reset content
-            content_buffer = [] # Reset buffer
-
-        elif current_item is not None:
-            # If we are inside an item, add this line to its content
-            content_buffer.append(line)
-        
-        # This is complex. Let's simplify the loop.
-        
-    # --- A SIMPLER, BETTER PARSING LOGIC ---
-    # We will reset the logic from the old script
-    
-    current_part = ""
-    current_chapter = ""
-    current_item = None
-    content_buffer = []
-
-    for line in lines:
-        line_stripped = line.strip()
-
-        # Check for tags
-        if line_stripped.startswith('@PART '):
-            _save_item(current_item, law_object) # Save the item we were just building
-            current_item = None
-            content_buffer = []
-            current_part = line_stripped.replace('@PART ', '', 1)
-        elif line_stripped.startswith('@CHAPTER '):
-            _save_item(current_item, law_object)
-            current_item = None
-            content_buffer = []
-            current_chapter = line_stripped.replace('@CHAPTER ', '', 1)
-        elif line_stripped.startswith('@SECTION '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'section', 'part': current_part, 'chapter': current_chapter}
-            current_item['number'] = line_stripped.replace('@SECTION ', '', 1)
-        elif line_stripped.startswith('@TITLE '):
-            if current_item:
-                current_item['title'] = line_stripped.replace('@TITLE ', '', 1)
-        elif line_stripped.startswith('@SCHEDULE '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'schedule'}
-            current_item['number'] = line_stripped.replace('@SCHEDULE ', '', 1)
-        elif line_stripped.startswith('@APPENDIX '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'appendix'}
-            current_item['number'] = line_stripped.replace('@APPENDIX ', '', 1)
-        elif current_item is not None:
-            # If we are inside an item, add this line to its content
-            content_buffer.append(line)
-        
-        # Save the content to the item when we hit a tag
-        if line_stripped.startswith('@') and content_buffer and current_item:
-            current_item['content'] = "\n".join(content_buffer).strip()
-            content_buffer = []
-    
-    # Save the very last item in the file
-    if current_item:
-        current_item['content'] = "\n".join(content_buffer).strip()
-        _save_item(current_item, law_object)
-    
-    # This logic is *still* buggy. The logic from import_law.py was better.
-    # Let's use the exact logic from the file importer.
-
-    current_part = ""
-    current_chapter = ""
-    current_item = None 
-    content_buffer = []
-
-    for line in lines:
-        line_stripped = line.strip()
-
-        # Check for tags
-        if line_stripped.startswith('@PART '):
-            _save_item(current_item, law_object) 
-            current_item = None
-            current_part = line_stripped.replace('@PART ', '', 1)
-        elif line_stripped.startswith('@CHAPTER '):
-            _save_item(current_item, law_object)
-            current_item = None
-            current_chapter = line_stripped.replace('@CHAPTER ', '', 1)
-        elif line_stripped.startswith('@SECTION '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'section', 'part': current_part, 'chapter': current_chapter}
-            current_item['number'] = line_stripped.replace('@SECTION ', '', 1)
-        elif line_stripped.startswith('@TITLE '):
-            if current_item:
-                current_item['title'] = line_stripped.replace('@TITLE ', '', 1)
-        elif line_stripped.startswith('@SCHEDULE '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'schedule'}
-            current_item['number'] = line_stripped.replace('@SCHEDULE ', '', 1)
-        elif line_stripped.startswith('@APPENDIX '):
-            _save_item(current_item, law_object)
-            content_buffer = []
-            current_item = {'type': 'appendix'}
-            current_item['number'] = line_stripped.replace('@APPENDIX ', '', 1)
-        elif current_item is not None:
-            content_buffer.append(line)
-        
-        # This is the original script's logic flaw. Content isn't saved until the *next* tag.
-        # We need to save the content *inside* the item when a new tag is found.
-        if line_stripped.startswith('@') and current_item and content_buffer:
-             # This is wrong. The content buffer belongs to the *previous* item.
-             pass
-
-    # Let's re-write the parser logic from the original script, but fix it.
-    
-    current_part = ""
-    current_chapter = ""
+    current_part = None
+    current_chapter = None
     current_item = None 
     content_buffer = []
     
-    # We must save the *previous* item when a *new* tag is found.
-    # We can't do that until we've processed the content buffer.
+    # Helper to get/create part/chapter
+    def get_part(heading):
+        # If heading is empty, we might want a default part or reuse the last one?
+        # For now, let's create a part with the heading.
+        # Note: This logic is simplified. In a real app, we might want to track order.
+        # We'll use 'get_or_create' but we need to be careful about order.
+        # Let's just create them as we encounter them.
+        if not heading:
+             heading = "Main"
+        return Part.objects.get_or_create(law=law_object, heading=heading)[0]
 
+    def get_chapter(part, heading):
+        if not heading:
+            heading = "Main"
+        return Chapter.objects.get_or_create(part=part, heading=heading)[0]
+
+    # Reset variables for the loop
+    current_part_name = ""
+    current_chapter_name = ""
+    
     for line in lines:
         line_stripped = line.strip()
         
@@ -249,19 +72,18 @@ def _run_import_logic(law_object):
 
         if line_stripped.startswith('@PART '):
             new_tag_found = True
-            current_part = line_stripped.replace('@PART ', '', 1)
-            current_chapter = "" # Reset chapter when part changes
+            current_part_name = line_stripped.replace('@PART ', '', 1)
+            current_chapter_name = "" 
         elif line_stripped.startswith('@CHAPTER '):
             new_tag_found = True
-            current_chapter = line_stripped.replace('@CHAPTER ', '', 1)
+            current_chapter_name = line_stripped.replace('@CHAPTER ', '', 1)
         elif line_stripped.startswith('@SECTION '):
             new_tag_found = True
-            new_item = {'type': 'section', 'part': current_part, 'chapter': current_chapter}
+            new_item = {'type': 'section', 'part': current_part_name, 'chapter': current_chapter_name}
             new_item['number'] = line_stripped.replace('@SECTION ', '', 1)
         elif line_stripped.startswith('@TITLE '):
             if current_item:
                 current_item['title'] = line_stripped.replace('@TITLE ', '', 1)
-            # This is not a content-starting tag, so continue
         elif line_stripped.startswith('@SCHEDULE '):
             new_tag_found = True
             new_item = {'type': 'schedule'}
@@ -272,33 +94,72 @@ def _run_import_logic(law_object):
             new_item['number'] = line_stripped.replace('@APPENDIX ', '', 1)
         
         if new_tag_found:
-            # A new tag was found. This means the previous item is complete.
             if current_item:
-                current_item['content'] = "\n".join(content_buffer).strip()
-                _save_item(current_item, law_object)
+                content = "\n".join(content_buffer).strip()
+                item_type = current_item.get('type')
+                
+                if item_type == 'section':
+                    part = get_part(current_item.get('part', ''))
+                    chapter = get_chapter(part, current_item.get('chapter', ''))
+                    Section.objects.create(
+                        chapter=chapter,
+                        number=current_item.get('number', ''),
+                        title=current_item.get('title', ''),
+                        content=content
+                    )
+                elif item_type == 'schedule':
+                    Schedule.objects.create(
+                        law=law_object,
+                        schedule_number=current_item.get('number', ''),
+                        title=current_item.get('title', ''),
+                        content=content
+                    )
+                elif item_type == 'appendix':
+                    Appendix.objects.create(
+                        law=law_object,
+                        appendix_number=current_item.get('number', ''),
+                        title=current_item.get('title', ''),
+                        content=content
+                    )
             
-            # Start the new item
             current_item = new_item
             content_buffer = []
         
         elif not line_stripped.startswith('@TITLE ') and current_item:
-            # This is a line of content
             content_buffer.append(line)
 
-    # Save the very last item in the file
+    # Save the last item
     if current_item:
-        current_item['content'] = "\n".join(content_buffer).strip()
-        _save_item(current_item, law_object)
+        content = "\n".join(content_buffer).strip()
+        item_type = current_item.get('type')
+        if item_type == 'section':
+            part = get_part(current_item.get('part', ''))
+            chapter = get_chapter(part, current_item.get('chapter', ''))
+            Section.objects.create(
+                chapter=chapter,
+                number=current_item.get('number', ''),
+                title=current_item.get('title', ''),
+                content=content
+            )
+        elif item_type == 'schedule':
+            Schedule.objects.create(
+                law=law_object,
+                schedule_number=current_item.get('number', ''),
+                title=current_item.get('title', ''),
+                content=content
+            )
+        elif item_type == 'appendix':
+            Appendix.objects.create(
+                law=law_object,
+                appendix_number=current_item.get('number', ''),
+                title=current_item.get('title', ''),
+                content=content
+            )
 
 # --- End of helper functions ---
 
+# SectionInline removed as it is not compatible with normalized models in LawAdmin
 
-class SectionInline(admin.StackedInline):
-    model = Section
-    extra = 0 # Don't show blank ones, we will import
-    fields = ('part_heading', 'chapter_heading', 'section_number', 'section_title', 'content', 'history_notes')
-    classes = ['collapse']
-    
 class ScheduleInline(admin.StackedInline):
     model = Schedule
     extra = 0
@@ -311,14 +172,12 @@ class AppendixInline(admin.StackedInline):
 
 @admin.register(Law)
 class LawAdmin(admin.ModelAdmin):
-    list_display = ('title', 'enactment_date')
+    list_display = ('title', 'enactment_date', 'slug')
     search_fields = ('title',)
-    prepopulated_fields = {'slug': ('title',)}
     
-    # We now have a complex layout
     fieldsets = (
         ('Law Details', {
-            'fields': ('title', 'slug', 'enactment_date', 'pdf_file', 'source_notes')
+            'fields': ('title', 'enactment_date', 'pdf_file', 'source_notes')
         }),
         ('PDF Extractor (Step 1)', {
             'classes': ('collapse',),
@@ -330,15 +189,9 @@ class LawAdmin(admin.ModelAdmin):
             'description': 'Click "Clean with AI" action to populate this. Review text, then run "Import from AI text" action.'
         }),
     )
-    readonly_fields = ('extracted_text',) # ai_prepared_text is editable
+    readonly_fields = ('extracted_text',)
+    inlines = [] 
     
-    inlines = [
-        SectionInline,
-        ScheduleInline,
-        AppendixInline,
-    ]
-
-    # --- THE NEW ACTIONS ---
     actions = ['clean_with_ai', 'import_from_ai_text']
 
     @admin.action(description='Step 1: Clean selected laws with AI')
@@ -347,7 +200,7 @@ class LawAdmin(admin.ModelAdmin):
             self.message_user(request, "GEMINI_API_KEY is not configured in settings.", level=messages.ERROR)
             return
         
-        model = genai.GenerativeModel('gemini-1.5-flash') # Use a fast model
+        model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
         
         updated_count = 0
         for law in queryset:
@@ -356,10 +209,7 @@ class LawAdmin(admin.ModelAdmin):
                 continue
             
             try:
-                # Call the API
                 response = model.generate_content([AI_SYSTEM_PROMPT, law.extracted_text])
-                
-                # Save the clean text
                 law.ai_prepared_text = response.text
                 law.save(update_fields=['ai_prepared_text'])
                 updated_count += 1
@@ -376,41 +226,54 @@ class LawAdmin(admin.ModelAdmin):
             return
 
         law = queryset.first()
+        
+        if not law.ai_prepared_text:
+            self.message_user(request, f"'{law.title}' has no AI-prepared text. Please run Step 1 first.", level=messages.ERROR)
+            return
 
         try:
-            # Use a transaction so it all succeeds or all fails
             with transaction.atomic():
                 # SAFETY SWITCH: Clear all existing content
-                law.sections.all().delete()
+                law.parts.all().delete() # Cascades to chapters and sections
                 law.schedules.all().delete()
                 law.appendices.all().delete()
                 
-                # Run the import logic
+                # Run the new bulk import logic
                 _run_import_logic(law)
             
             self.message_user(request, f"Successfully imported all content for '{law.title}'.", level=messages.SUCCESS)
-            # Don't forget to sync Meilisearch!
             self.message_user(request, "You must now run syncindex in your terminal to make this new data searchable.", level=messages.WARNING)
         
         except Exception as e:
             self.message_user(request, f"An error occurred: {e}. Transaction has been rolled back.", level=messages.ERROR)
 
 
-# --- (The rest of your admin registrations are unchanged) ---
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
-    list_display = ('section_number', 'law', 'part_heading', 'chapter_heading')
-    search_fields = ('section_number', 'content', 'part_heading', 'chapter_heading')
-    list_filter = ('law',)
+    list_display = ('number', 'get_law', 'get_part', 'get_chapter')
+    list_filter = ('chapter__part__law',)
+    search_fields = ['number', 'title', 'content', 'chapter__part__law__title']
+
+    def get_law(self, obj):
+        return obj.chapter.part.law.title
+    get_law.short_description = 'Law'
+
+    def get_part(self, obj):
+        return obj.chapter.part.heading
+    get_part.short_description = 'Part'
+
+    def get_chapter(self, obj):
+        return obj.chapter.heading
+    get_chapter.short_description = 'Chapter'
 
 @admin.register(Schedule)
 class ScheduleAdmin(admin.ModelAdmin):
     list_display = ('schedule_number', 'law', 'title')
-    search_fields = ('schedule_number', 'title', 'content')
     list_filter = ('law',)
+    search_fields = ['schedule_number', 'title', 'content', 'law__title']
 
 @admin.register(Appendix)
 class AppendixAdmin(admin.ModelAdmin):
     list_display = ('appendix_number', 'law', 'title')
-    search_fields = ('appendix_number', 'title', 'content')
     list_filter = ('law',)
+    search_fields = ['appendix_number', 'title', 'content', 'law__title']

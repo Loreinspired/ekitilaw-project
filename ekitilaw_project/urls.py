@@ -13,7 +13,7 @@ urlpatterns = [
     # --- 2. ADD THIS NEW LINE ---
     # This tells Django: "If the URL starts with 'search/',
     # send it to the 'laws.urls' file for instructions."
-    path('search/', include('laws.urls')),
+    path('', include('laws.urls')),
 ]
 
 # --- (This part is for your PDF uploads) ---
