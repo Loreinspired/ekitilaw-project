@@ -16,3 +16,11 @@ media/
 
 # Meilisearch
 data.ms/
+
+# Ignore Log Files
+*.txt
+*.log
+
+# Ignore Scripts in root (optional, if you want them private)
+fix_data.py
+fix_templates.py
