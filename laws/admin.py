@@ -4,11 +4,17 @@ from django.contrib import admin, messages
 from django.db import transaction
 from django.conf import settings
 from .models import Law, Part, Chapter, Section, Schedule, Appendix
-import google.generativeai as genai
 
-# Configure the Gemini API
-if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+# Try to import Gemini AI (optional)
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+    # Configure the Gemini API
+    if settings.GEMINI_API_KEY:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+except ImportError:
+    GENAI_AVAILABLE = False
+    genai = None
 
 # --- This is the AI's "Brain" (Unchanged) ---
 AI_SYSTEM_PROMPT = """You are a legal formatting assistant. Your ONLY job is to take raw, messy text from a PDF of a law and convert it into a clean, tagged text file.
@@ -196,10 +202,14 @@ class LawAdmin(admin.ModelAdmin):
 
     @admin.action(description='Step 1: Clean selected laws with AI')
     def clean_with_ai(self, request, queryset):
+        if not GENAI_AVAILABLE:
+            self.message_user(request, "Google Generative AI is not installed. Install it with: pip install google-generativeai", level=messages.ERROR)
+            return
+
         if not settings.GEMINI_API_KEY:
             self.message_user(request, "GEMINI_API_KEY is not configured in settings.", level=messages.ERROR)
             return
-        
+
         model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
         
         updated_count = 0
