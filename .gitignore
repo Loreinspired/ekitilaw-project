@@ -18,8 +18,10 @@ media/
 data.ms/
 
 # Ignore Log Files
-*.txt
 *.log
+
+# Allow requirements.txt
+!requirements.txt
 
 # Ignore Scripts in root (optional, if you want them private)
 fix_data.py
